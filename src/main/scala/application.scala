@@ -113,7 +113,6 @@ case class BoolArg(name: String) extends MainArg {
 object Application {
   def usageError(msg: String) = throw UsageError(msg)
 }
-
 import Application._
 
 /**

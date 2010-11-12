@@ -60,33 +60,24 @@ object Options
     }
 
     def addShortOption(c:Char) {
-      for {
-        info <- shortArg(c) orElse
-          usageError("unrecognized option: -%c" format(c)) 
-      } {
-        addOption(info)
-      }
+      val info = shortArg(c) getOrElse usageError("unrecognized option: -%c" format(c)) 
+      addOption(info)
     }
 
     def addLongOption(name: String) {
-      for {
-        info <- longArg(name) orElse
-          usageError("unrecognized option: --%s" format(name)) 
-      } {
-        addOption(info)
-      }
+      val info = longArg(name) getOrElse usageError("unrecognized option: --%s" format(name))
+      addOption(info)
     }
 
     optionsStack ++= args.reverse;    
     while(!optionsStack.isEmpty){
       optionsStack.pop match {
-        case ShortSquashedOption(xs) =>
-          xs foreach addShortOption
+        case ShortSquashedOption(xs) => xs foreach addShortOption
         case ShortOption(name) => addShortOption(name(0))
         case LongOption(name) => addLongOption(name);
         case OptionTerminator => optionsStack.drain(arguments += _);
         case x => arguments += x; 
-      }  
+      }
     }
 
     Options(options, arguments.toList, args.toList)
