@@ -17,11 +17,15 @@ import Util._
 
 object Integrated extends optional.Application {
   def main(
-    @Help("show version") @Alias("v") 
+      @Help("show version") @Alias("v") 
     version: Option[Boolean],
-    status: Option[Boolean]
+      @Help("status of system") @Alias("s") 
+    status: Option[Boolean],
+    file:String,
+    arg1:Int
   ) {
-    version  ifDefined { Console println "version 0.1" }
+    version ifDefined { Console println "version 0.1" }
+    if (status.isDefined) { Console println "status" }
   }
 }
 

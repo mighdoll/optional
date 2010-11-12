@@ -2,13 +2,14 @@ package optional
 
 import scala.collection._
 import mutable.HashSet
+import Application._
+
 
 case class Options(
   options: Map[String, String],
   args: List[String],
   rawArgs: List[String]
 )
-case class ArgInfo(short: Char, long: String, isSwitch: Boolean, help: String)
 
 object Options
 {
@@ -29,39 +30,50 @@ object Options
     val options = new OpenHashMap[String, String];
     val arguments = new ArrayBuffer[String];
     
-    def addSwitch(c: Char) =
-      options(longOptionName(c.toString)) = True
-    
-    def isSwitch(c: Char) =
-      argInfos exists {
-        case ArgInfo(`c`, _, true, _) => true
+    def longArg(name: String):Option[ArgInfo] = {
+      argInfos find {
+        case ArgInfo(_, `name`, _, _) => true
         case _                        => false
       }
-
-    /** convert a possibly one character option name to the canonical long name 
-      * Note -- this currently breaks handling for command 
-      * line arguments w/o an ArgInfo */
-    def longOptionName(name:String):String = {
-      if (name.length == 1) {
-        val c = name(0)
-        argInfos find {_.short == c} map {_.long} getOrElse {
-          throw new UsageError("unexpected argument: -%s".format(name))
-        }
-      } else name 
     }
 
-    def addOption(name: String) = {
-      val argName = longOptionName(name)
+    def shortArg(c:Char):Option[ArgInfo] = {
+      argInfos find {
+        case ArgInfo(`c`, _, _, _) => true
+        case _                     => false
+      }
+    }
 
-      if (optionsStack.isEmpty) options(argName) = True;
-      else {
+    def addOption(info:ArgInfo) {
+      if (info.isSwitch) {
+        options(info.long) = True
+      } else if (optionsStack.isEmpty) {
+        usageError("missing parameter for: %s" format(info.long)) 
+      } else {
         val next = optionsStack.pop;
         next match {
           case ShortOption(_) | ShortSquashedOption(_) | LongOption(_) | OptionTerminator =>
-            optionsStack.push(next);
-            options(argName) = True;
-          case x => options(argName) = x;
+            usageError("missing parameter for: %s" format(info.long)) 
+          case x => options(info.long) = x;
         }
+      }
+    }
+
+    def addShortOption(c:Char) {
+      for {
+        info <- shortArg(c) orElse
+          usageError("unrecognized option: -%c" format(c)) 
+      } {
+        addOption(info)
+      }
+    }
+
+    def addLongOption(name: String) {
+      for {
+        info <- longArg(name) orElse
+          usageError("unrecognized option: --%s" format(name)) 
+      } {
+        addOption(info)
       }
     }
 
@@ -69,14 +81,9 @@ object Options
     while(!optionsStack.isEmpty){
       optionsStack.pop match {
         case ShortSquashedOption(xs) =>
-          xs foreach addSwitch
-
-        case ShortOption(name) =>
-          val c = name(0)
-          if (isSwitch(c)) addSwitch(c)
-          else addOption(name)
-        
-        case LongOption(name) => addOption(name);
+          xs foreach addShortOption
+        case ShortOption(name) => addShortOption(name(0))
+        case LongOption(name) => addLongOption(name);
         case OptionTerminator => optionsStack.drain(arguments += _);
         case x => arguments += x; 
       }  

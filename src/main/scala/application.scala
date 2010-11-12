@@ -9,6 +9,7 @@ import collection.mutable.HashSet
 
 case class DesignError(msg: String) extends Error(msg)
 case class UsageError(msg: String) extends RuntimeException(msg)
+case class ArgInfo(short: Char, long: String, isSwitch: Boolean, help: String)
 
 object Util
 {
@@ -47,8 +48,7 @@ private object OptionType {
   }
 }
 
-object MainArg
-{
+object MainArg {
   def apply(name: String, tpe: Type): MainArg = tpe match {
     case CBool | CBoolean => BoolArg(name)
     case OptionType(t)  => OptArg(name, t, tpe)
@@ -77,27 +77,44 @@ sealed abstract class MainArg {
   def pos: Int = -1
   def isPositional = pos > -1
   def isBoolean = false
+  def isSwitch:Boolean
 }
+
 case class OptArg(name: String, tpe: Type, originalType: Type) extends MainArg {
   val isOptional = true
   def usage = "[--%s %s]".format(name, stringForType(tpe))
+
+  def isSwitch = {
+    if (tpe ==  classOf[Boolean]) true
+    else if (tpe == classOf[java.lang.Boolean]) true
+    else false
+  }
 }
 case class ReqArg(name: String, tpe: Type) extends MainArg {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s: %s>".format(name, stringForType(tpe))
+  def isSwitch = false
 }
 case class PosArg(name: String, tpe: Type, override val pos: Int) extends MainArg {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s>".format(stringForType(tpe))
+  def isSwitch = false
 }
 case class BoolArg(name: String) extends MainArg {
   override def isBoolean = true
   val tpe, originalType = CBoolean
   val isOptional = true
+  def isSwitch = true
   def usage = "[--%s]".format(name)
 }
+
+object Application {
+  def usageError(msg: String) = throw UsageError(msg)
+}
+
+import Application._
 
 /**
  *  This trait automagically finds a main method on the object 
@@ -127,11 +144,10 @@ trait Application
   private def methods(f: Method => Boolean): List[Method] = getClass.getMethods.toList filter f
   private def signature(m: Method) = m.toGenericString.replaceAll("""\S+\.main\(""", "main(") // ))
   private def designError(msg: String) = throw DesignError(msg)
-  private def usageError(msg: String) = throw UsageError(msg)
 
   private def isRealMain(m: Method)     = cond(m.getParameterTypes) { case Array(CArrayString) => true }
   private def isEligibleMain(m: Method) = m.getName == "main" && !isRealMain(m)
-  private lazy val mainMethod = methods(isEligibleMain) match {
+  lazy val mainMethod = methods(isEligibleMain) match {
     case Nil      => designError("No eligible main method found")
     case List(x)  => x
     case xs       =>
@@ -140,6 +156,19 @@ trait Application
       )
   }
   
+  import java.lang.annotation.Annotation
+  def helpAnnotation:PartialFunction[Annotation,String] = {
+    case h:Help => h.value
+  }
+  def aliasAnnotation:PartialFunction[Annotation,Char] = {
+    case a:Alias => new String(a.value)(0)
+  }
+
+  private lazy val mainAnnotations = mainMethod.getParameterAnnotations 
+  private lazy val argumentAliases = mainAnnotations map { _ collect aliasAnnotation} map {
+    _ headOption} map { _ getOrElse(' ') }
+  private lazy val argumentHelp = mainAnnotations map { _ collect helpAnnotation} map {
+    _ headOption} map { _ getOrElse("") }
   private lazy val parameterTypes   = mainMethod.getGenericParameterTypes.toList
   private lazy val argumentNames    = (new BytecodeReadingParanamer lookupParameterNames mainMethod map (_.replaceAll("\\$.+", ""))).toList
   private lazy val mainArgs         = (argumentNames, parameterTypes).zipped map (MainArg(_, _))
@@ -243,14 +272,14 @@ trait Application
   }
   
   def mainArguments():Iterable[ArgInfo] = {
-    Console println (mainArgs mkString ", ")
-    Nil
+    (mainArgs, argumentAliases, argumentHelp).zipped map {(arg,alias,help) =>
+      ArgInfo(short = alias, long = arg.name, isSwitch = arg.isSwitch, help = help)
+    }
   }
   
   def main(cmdline: Array[String]) {
     try {
-      val arguments = mainArguments();
-      
+      val arguments = mainArguments;
       _opts = Options.parse(arguments, cmdline: _*)
      callWithOptions()
     }
