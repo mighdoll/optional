@@ -18,7 +18,7 @@ object Util
   val CBoolean      = classOf[jl.Boolean]
   val CArrayString  = classOf[Array[String]]
   
-  val Argument = """^arg(\d+)$""".r
+  val ArgArgument = """^arg(\d+)$""".r
   
   def cond[T](x: T)(f: PartialFunction[T, Boolean]) =
     (f isDefinedAt x) && f(x)
@@ -47,13 +47,13 @@ private object OptionType {
   }
 }
 
-object MainArg {
-  def apply(name: String, tpe: Type, alias:Char, help: String): MainArg = tpe match {
+object Argument {
+  def apply(name: String, tpe: Type, alias:Char, help: String): Argument = tpe match {
     case CBool | CBoolean => BoolArg(name, alias, help)
     case OptionType(t)  => OptArg(name, t, tpe, alias, help)
     case _              =>
       name match {      
-        case Argument(num)  => PosArg(name, tpe, num.toInt, alias, help)
+        case ArgArgument(num)  => PosArg(name, tpe, num.toInt, alias, help)
         case _              => ReqArg(name, tpe, alias, help)
       }
     }
@@ -66,7 +66,7 @@ object MainArg {
   }
 }
 
-sealed abstract class MainArg(val alias:Char, val help:String) {
+sealed abstract class Argument(val alias:Char, val help:String) {
   def name: String
   def tpe: Type
   def originalType: Type
@@ -80,7 +80,7 @@ sealed abstract class MainArg(val alias:Char, val help:String) {
 }
 
 case class OptArg(name: String, tpe: Type, originalType: Type, _alias:Char, _help:String) 
-    extends MainArg(_alias, _help) {
+    extends Argument(_alias, _help) {
   val isOptional = true
   def usage = "[--%s %s]".format(name, stringForType(tpe))
 
@@ -91,21 +91,21 @@ case class OptArg(name: String, tpe: Type, originalType: Type, _alias:Char, _hel
   }
 }
 case class ReqArg(name: String, tpe: Type, _alias:Char, _help:String) 
-    extends MainArg(_alias, _help) {
+    extends Argument(_alias, _help) {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s: %s>".format(name, stringForType(tpe))
   def isSwitch = false
 }
 case class PosArg(name: String, tpe: Type, override val pos: Int, _alias:Char, _help:String) 
-    extends MainArg(_alias, _help) {
+    extends Argument(_alias, _help) {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s>".format(stringForType(tpe))
   def isSwitch = false
 }
 case class BoolArg(name: String, _alias:Char, _help:String) 
-    extends MainArg(_alias, _help) {
+    extends Argument(_alias, _help) {
   override def isBoolean = true
   val tpe, originalType = CBoolean
   val isOptional = true
@@ -178,7 +178,7 @@ trait Application
       val aliasesIter = aliases.iterator
       val helpIter = help.iterator
       argumentNames map {name =>
-        MainArg(name, typesIter.next, aliasesIter.next, helpIter.next)
+        Argument(name, typesIter.next, aliasesIter.next, helpIter.next)
       }
     }
   private lazy val reqArgs          = mainArgs filter (x => !x.isOptional)
@@ -266,8 +266,8 @@ trait Application
       usageError("missing required option%s: %s".format(s, missingStr))
     }
     
-    def determineValue(ma: MainArg): AnyRef = {
-      val MainArg(name, _, tpe) = ma
+    def determineValue(ma: Argument): AnyRef = {
+      val Argument(name, _, tpe) = ma
       def isPresent = options contains name
       
       if (ma.isPositional)      coerceTo(name, tpe)(args(ma.pos - 1))

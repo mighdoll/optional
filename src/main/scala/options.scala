@@ -24,27 +24,27 @@ object Options
    * Currently the dumbest option parser in the entire world, but
    * oh well.
    */
-  def parse(argInfos: Iterable[MainArg], args: String*): Options = {
+  def parse(argInfos: Iterable[Argument], args: String*): Options = {
     import mutable._;
     val optionsStack = new ArrayStack[String];
     val options = new OpenHashMap[String, String];
     val arguments = new ArrayBuffer[String];
     
-    def longArg(name: String):Option[MainArg] = {
+    def longArg(name: String):Option[Argument] = {
       argInfos find {
-        case m:MainArg if m.name == name  => true
+        case m:Argument if m.name == name  => true
         case _                            => false
       }
     }
 
-    def shortArg(c:Char):Option[MainArg] = {
+    def shortArg(c:Char):Option[Argument] = {
       argInfos find {
-        case m:MainArg if m.alias == c  => true
+        case m:Argument if m.alias == c  => true
         case _                          => false
       }
     }
 
-    def addOption(arg:MainArg) {
+    def addOption(arg:Argument) {
       if (arg.isSwitch) {
         options(arg.name) = True
       } else if (optionsStack.isEmpty) {
