@@ -24,37 +24,37 @@ object Options
    * Currently the dumbest option parser in the entire world, but
    * oh well.
    */
-  def parse(argInfos: Iterable[ArgInfo], args: String*): Options = {
+  def parse(argInfos: Iterable[MainArg], args: String*): Options = {
     import mutable._;
     val optionsStack = new ArrayStack[String];
     val options = new OpenHashMap[String, String];
     val arguments = new ArrayBuffer[String];
     
-    def longArg(name: String):Option[ArgInfo] = {
+    def longArg(name: String):Option[MainArg] = {
       argInfos find {
-        case ArgInfo(_, `name`, _, _) => true
-        case _                        => false
+        case m:MainArg if m.name == name  => true
+        case _                            => false
       }
     }
 
-    def shortArg(c:Char):Option[ArgInfo] = {
+    def shortArg(c:Char):Option[MainArg] = {
       argInfos find {
-        case ArgInfo(`c`, _, _, _) => true
-        case _                     => false
+        case m:MainArg if m.alias == c  => true
+        case _                          => false
       }
     }
 
-    def addOption(info:ArgInfo) {
-      if (info.isSwitch) {
-        options(info.long) = True
+    def addOption(arg:MainArg) {
+      if (arg.isSwitch) {
+        options(arg.name) = True
       } else if (optionsStack.isEmpty) {
-        usageError("missing parameter for: %s" format(info.long)) 
+        usageError("missing parameter for: %s" format(arg.name)) 
       } else {
         val next = optionsStack.pop;
         next match {
           case ShortOption(_) | ShortSquashedOption(_) | LongOption(_) | OptionTerminator =>
-            usageError("missing parameter for: %s" format(info.long)) 
-          case x => options(info.long) = x;
+            usageError("missing parameter for: %s" format(arg.name)) 
+          case x => options(arg.name) = x;
         }
       }
     }

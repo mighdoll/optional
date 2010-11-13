@@ -49,38 +49,39 @@ private object OptionType {
 }
 
 object MainArg {
-  def apply(name: String, tpe: Type): MainArg = tpe match {
-    case CBool | CBoolean => BoolArg(name)
-    case OptionType(t)  => OptArg(name, t, tpe)
+  def apply(name: String, tpe: Type, alias:Char, help: String): MainArg = tpe match {
+    case CBool | CBoolean => BoolArg(name, alias, help)
+    case OptionType(t)  => OptArg(name, t, tpe, alias, help)
     case _              =>
       name match {      
-        case Argument(num)  => PosArg(name, tpe, num.toInt)
-        case _              => ReqArg(name, tpe)
+        case Argument(num)  => PosArg(name, tpe, num.toInt, alias, help)
+        case _              => ReqArg(name, tpe, alias, help)
       }
-  }
+    }
 
   def unapply(x: Any): Option[(String, Type, Type)] = x match {
-    case OptArg(name, tpe, originalType)  => Some(name, tpe, originalType)
-    case BoolArg(name)                    => Some(name, CBoolean, CBoolean)
-    case ReqArg(name, tpe)                => Some(name, tpe, tpe)
-    case PosArg(name, tpe, num)           => Some(name, tpe, tpe)
+    case OptArg(name, tpe, originalType, _, _)  => Some(name, tpe, originalType)
+    case BoolArg(name, _, _)                    => Some(name, CBoolean, CBoolean)
+    case ReqArg(name, tpe, _, _)                => Some(name, tpe, tpe)
+    case PosArg(name, tpe, num, _, _)           => Some(name, tpe, tpe)
   }
 }
 
-sealed abstract class MainArg {
+sealed abstract class MainArg(val alias:Char, val help:String) {
   def name: String
   def tpe: Type
   def originalType: Type
   def isOptional: Boolean
   def usage: String
-  
+
   def pos: Int = -1
   def isPositional = pos > -1
   def isBoolean = false
   def isSwitch:Boolean
 }
 
-case class OptArg(name: String, tpe: Type, originalType: Type) extends MainArg {
+case class OptArg(name: String, tpe: Type, originalType: Type, _alias:Char, _help:String) 
+    extends MainArg(_alias, _help) {
   val isOptional = true
   def usage = "[--%s %s]".format(name, stringForType(tpe))
 
@@ -90,19 +91,22 @@ case class OptArg(name: String, tpe: Type, originalType: Type) extends MainArg {
     else false
   }
 }
-case class ReqArg(name: String, tpe: Type) extends MainArg {
+case class ReqArg(name: String, tpe: Type, _alias:Char, _help:String) 
+    extends MainArg(_alias, _help) {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s: %s>".format(name, stringForType(tpe))
   def isSwitch = false
 }
-case class PosArg(name: String, tpe: Type, override val pos: Int) extends MainArg {
+case class PosArg(name: String, tpe: Type, override val pos: Int, _alias:Char, _help:String) 
+    extends MainArg(_alias, _help) {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s>".format(stringForType(tpe))
   def isSwitch = false
 }
-case class BoolArg(name: String) extends MainArg {
+case class BoolArg(name: String, _alias:Char, _help:String) 
+    extends MainArg(_alias, _help) {
   override def isBoolean = true
   val tpe, originalType = CBoolean
   val isOptional = true
@@ -164,13 +168,20 @@ trait Application
   }
 
   private lazy val mainAnnotations = mainMethod.getParameterAnnotations 
-  private lazy val argumentAliases = mainAnnotations map { _ collect aliasAnnotation} map {
+  private lazy val aliases = mainAnnotations map { _ collect aliasAnnotation} map {
     _ headOption} map { _ getOrElse(' ') }
-  private lazy val argumentHelp = mainAnnotations map { _ collect helpAnnotation} map {
+  private lazy val help = mainAnnotations map { _ collect helpAnnotation} map {
     _ headOption} map { _ getOrElse("") }
   private lazy val parameterTypes   = mainMethod.getGenericParameterTypes.toList
   private lazy val argumentNames    = (new BytecodeReadingParanamer lookupParameterNames mainMethod map (_.replaceAll("\\$.+", ""))).toList
-  private lazy val mainArgs         = (argumentNames, parameterTypes).zipped map (MainArg(_, _))
+  private lazy val mainArgs         = {
+      val typesIter = parameterTypes.iterator
+      val aliasesIter = aliases.iterator
+      val helpIter = help.iterator
+      argumentNames map {name =>
+        MainArg(name, typesIter.next, aliasesIter.next, helpIter.next)
+      }
+    }
   private lazy val reqArgs          = mainArgs filter (x => !x.isOptional)
   private def posArgCount           = mainArgs filter (_.isPositional) size
 
@@ -266,12 +277,11 @@ trait Application
       else if (ma.isOptional)   None
       else                      missing(name)
     }
-    
     mainMethod.invoke(this, (mainArgs map determineValue).toArray : _*)
   }
   
   def mainArguments():Iterable[ArgInfo] = {
-    (mainArgs, argumentAliases, argumentHelp).zipped map {(arg,alias,help) =>
+    (mainArgs, aliases, help).zipped map {(arg,alias,help) =>
       ArgInfo(short = alias, long = arg.name, isSwitch = arg.isSwitch, help = help)
     }
   }
@@ -279,7 +289,7 @@ trait Application
   def main(cmdline: Array[String]) {
     try {
       val arguments = mainArguments;
-      _opts = Options.parse(arguments, cmdline: _*)
+      _opts = Options.parse(mainArgs, cmdline: _*)
      callWithOptions()
     }
     catch {
