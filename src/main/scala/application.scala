@@ -6,6 +6,7 @@ import java.{ lang => jl }
 import java.lang.{ Class => JClass }
 import jl.reflect.{ Array => _, _ }
 import collection.mutable.HashSet
+import java.lang.annotation.Annotation
 
 case class DesignError(msg: String) extends Error(msg)
 case class UsageError(msg: String) extends RuntimeException(msg)
@@ -158,7 +159,6 @@ trait Application
       )
   }
   
-  import java.lang.annotation.Annotation
   def helpAnnotation:PartialFunction[Annotation,String] = {
     case h:Help => h.value
   }
