@@ -9,7 +9,6 @@ import collection.mutable.HashSet
 
 case class DesignError(msg: String) extends Error(msg)
 case class UsageError(msg: String) extends RuntimeException(msg)
-case class ArgInfo(short: Char, long: String, isSwitch: Boolean, help: String)
 
 object Util
 {
@@ -280,15 +279,9 @@ trait Application
     mainMethod.invoke(this, (mainArgs map determineValue).toArray : _*)
   }
   
-  def mainArguments():Iterable[ArgInfo] = {
-    (mainArgs, aliases, help).zipped map {(arg,alias,help) =>
-      ArgInfo(short = alias, long = arg.name, isSwitch = arg.isSwitch, help = help)
-    }
-  }
   
   def main(cmdline: Array[String]) {
     try {
-      val arguments = mainArguments;
       _opts = Options.parse(mainArgs, cmdline: _*)
      callWithOptions()
     }
