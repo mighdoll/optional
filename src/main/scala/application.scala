@@ -39,7 +39,24 @@ object Util
       case x: Class[_]  => x.getName()
       case x            => x.toString()
     }  
+
+  /** Find an element for which a partial function is defined.  Return the partial function
+   *  result wrapped in a Some(), or else return None if the partial function is not defined 
+   *  for any elements.
+   */
+  def findMap[T,R](coll:Traversable[T], fn:PartialFunction[T,R]):Option[R] = {
+    coll find {elem => fn.isDefinedAt(elem)} map {elem => fn(elem)}
+  }
+  
+  /** maps to Some(value) where pf is defined, else to none */
+  def partialMap[T,R](coll:Traversable[T], fn:PartialFunction[T,R]):Traversable[Option[R]] = {
+    for (elem <- coll) yield {
+      if (fn.isDefinedAt(elem)) Some(fn(elem))
+      else None
+    } 
+  }
 }
+
 import Util._
 
 private object OptionType {
@@ -147,16 +164,14 @@ trait Application {
       )
   }
   
-  def helpAnnotation:PartialFunction[Annotation,String] = {
-    case h:Help => h.value
-  }
-  def aliasAnnotation:PartialFunction[Annotation,Char] = {
-    case a:Alias => new String(a.value)(0)
-  }
-
   private lazy val mainAnnotations = mainMethod.getParameterAnnotations 
-  private lazy val aliases = mainAnnotations map {_ collect aliasAnnotation} map {_ headOption} 
-  private lazy val help = mainAnnotations map {_ collect helpAnnotation} map { _ headOption} 
+  private lazy val help = mainAnnotations map { 
+      findMap[Annotation,String](_, { case help:Help => help.value}) 
+    }
+  private lazy val aliases = mainAnnotations map { 
+      findMap[Annotation,Char](_, { case al:Alias => new String(al.value)(0)}) 
+    } 
+
   private lazy val parameterTypes   = mainMethod.getGenericParameterTypes.toList
   private lazy val argumentNames    = (new BytecodeReadingParanamer lookupParameterNames mainMethod map (_.replaceAll("\\$.+", ""))).toList
   private lazy val mainArgs         = {
