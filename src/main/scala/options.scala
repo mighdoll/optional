@@ -32,15 +32,15 @@ object Options
     
     def longArg(name: String):Option[Argument] = {
       argInfos find {
-        case m:Argument if m.name == name  => true
-        case _                            => false
+        case m:Argument if m.name == name   => true
+        case _                              => false
       }
     }
 
     def shortArg(c:Char):Option[Argument] = {
       argInfos find {
-        case m:Argument if m.alias == c  => true
-        case _                          => false
+        case m:Argument if m.alias == Some(c)   => true
+        case _                                  => false
       }
     }
 

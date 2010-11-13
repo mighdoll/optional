@@ -49,7 +49,7 @@ private object OptionType {
 }
 
 object Argument {
-  def apply(name: String, tpe: Type, alias:Char, help: String): Argument = tpe match {
+  def apply(name: String, tpe: Type, alias:Option[Char], help:Option[String]): Argument = tpe match {
     case CBool | CBoolean => BoolArg(name, alias, help)
     case OptionType(t)  => OptArg(name, t, tpe, alias, help)
     case _              =>
@@ -67,12 +67,14 @@ object Argument {
   }
 }
 
-sealed abstract class Argument(val alias:Char, val help:String) {
+sealed abstract class Argument {
   def name: String
   def tpe: Type
   def originalType: Type
   def isOptional: Boolean
   def usage: String
+  def alias:Option[Char]
+  def help:Option[String]
 
   def pos: Int = -1
   def isPositional = pos > -1
@@ -81,25 +83,23 @@ sealed abstract class Argument(val alias:Char, val help:String) {
   def mkUsage(base:String) = "%15s  %s" format(base, help)
 }
 
-case class OptArg(name: String, tpe: Type, originalType: Type, _alias:Char, _help:String) 
-    extends Argument(_alias, _help) {
+case class OptArg(name: String, tpe: Type, originalType: Type, alias:Option[Char], help:Option[String]) 
+    extends Argument {
   val isOptional = true
   def usage = "[--%s %s]".format(name, stringForType(tpe))
 }
-case class ReqArg(name: String, tpe: Type, _alias:Char, _help:String) 
-    extends Argument(_alias, _help) {
+case class ReqArg(name: String, tpe: Type, alias:Option[Char], help:Option[String]) extends Argument {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s: %s> ".format(name, stringForType(tpe))
 }
-case class PosArg(name: String, tpe: Type, override val pos: Int, _alias:Char, _help:String) 
-    extends Argument(_alias, _help) {
+case class PosArg(name: String, tpe: Type, override val pos: Int, alias:Option[Char], help:Option[String]) 
+    extends Argument {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s>".format(stringForType(tpe))
 }
-case class BoolArg(name: String, _alias:Char, _help:String) 
-    extends Argument(_alias, _help) {
+case class BoolArg(name: String, alias:Option[Char], help:Option[String]) extends Argument {
   val tpe, originalType = CBoolean
   val isOptional = true
   override def isSwitch = true
@@ -155,10 +155,8 @@ trait Application {
   }
 
   private lazy val mainAnnotations = mainMethod.getParameterAnnotations 
-  private lazy val aliases = mainAnnotations map { _ collect aliasAnnotation} map {
-    _ headOption} map { _ getOrElse(' ') }
-  private lazy val help = mainAnnotations map { _ collect helpAnnotation} map {
-    _ headOption} map { _ getOrElse("") }
+  private lazy val aliases = mainAnnotations map {_ collect aliasAnnotation} map {_ headOption} 
+  private lazy val help = mainAnnotations map {_ collect helpAnnotation} map { _ headOption} 
   private lazy val parameterTypes   = mainMethod.getGenericParameterTypes.toList
   private lazy val argumentNames    = (new BytecodeReadingParanamer lookupParameterNames mainMethod map (_.replaceAll("\\$.+", ""))).toList
   private lazy val mainArgs         = {
@@ -271,7 +269,7 @@ trait Application {
   def main(cmdline: Array[String]) {
     try {
       _opts = Options.parse(mainArgs, cmdline: _*)
-     callWithOptions()
+      callWithOptions()
     }
     catch {
       case UsageError(msg) =>
