@@ -76,41 +76,33 @@ sealed abstract class Argument(val alias:Char, val help:String) {
 
   def pos: Int = -1
   def isPositional = pos > -1
-  def isBoolean = false
-  def isSwitch:Boolean
+  def isSwitch = false
+
+  def mkUsage(base:String) = "%15s  %s" format(base, help)
 }
 
 case class OptArg(name: String, tpe: Type, originalType: Type, _alias:Char, _help:String) 
     extends Argument(_alias, _help) {
   val isOptional = true
   def usage = "[--%s %s]".format(name, stringForType(tpe))
-
-  def isSwitch = {
-    if (tpe ==  classOf[Boolean]) true
-    else if (tpe == classOf[java.lang.Boolean]) true
-    else false
-  }
 }
 case class ReqArg(name: String, tpe: Type, _alias:Char, _help:String) 
     extends Argument(_alias, _help) {
   val originalType = tpe
   val isOptional = false
-  def usage = "<%s: %s>".format(name, stringForType(tpe))
-  def isSwitch = false
+  def usage = "<%s: %s> ".format(name, stringForType(tpe))
 }
 case class PosArg(name: String, tpe: Type, override val pos: Int, _alias:Char, _help:String) 
     extends Argument(_alias, _help) {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s>".format(stringForType(tpe))
-  def isSwitch = false
 }
 case class BoolArg(name: String, _alias:Char, _help:String) 
     extends Argument(_alias, _help) {
-  override def isBoolean = true
   val tpe, originalType = CBoolean
   val isOptional = true
-  def isSwitch = true
+  override def isSwitch = true
   def usage = "[--%s]".format(name)
 }
 
@@ -124,15 +116,12 @@ import Application._
  *  which mixes this in and based on method names and types figures
  *  out the options it should be called with and takes care of parameter parsing
  */ 
-trait Application
-{
-  /** Public methods.
-   */
+trait Application {
+  /** Public methods.  */
   def getRawArgs()  = opts.rawArgs
   def getArgs()     = opts.args
   
-  /** These methods can be overridden to modify application behavior.
-   */
+  /** These methods can be overridden to modify application behavior.  */
 
   /** Override this if you want to restrict the search space of conversion methods. */
   protected def isConversionMethod(m: Method) = true
@@ -141,8 +130,7 @@ trait Application
   protected def programName   = "program"
   protected def usageMessage  = "Usage: %s %s".format(programName, mainArgs map (_.usage) mkString " ")
   
-  /** If you mess with anything from here on down, you're on your own.
-   */
+  /** If you mess with anything from here on down, you're on your own.  */
   
   private def methods(f: Method => Boolean): List[Method] = getClass.getMethods.toList filter f
   private def signature(m: Method) = m.toGenericString.replaceAll("""\S+\.main\(""", "main(") // ))
@@ -272,7 +260,7 @@ trait Application
       
       if (ma.isPositional)      coerceTo(name, tpe)(args(ma.pos - 1))
       else if (isPresent)       coerceTo(name, tpe)(options(name))
-      else if (ma.isBoolean)    jl.Boolean.FALSE
+      else if (ma.isSwitch)     jl.Boolean.FALSE
       else if (ma.isOptional)   None
       else                      missing(name)
     }
