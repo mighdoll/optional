@@ -6,6 +6,7 @@ import java.{ lang => jl }
 import java.lang.{ Class => JClass }
 import jl.reflect.{ Array => _, _ }
 import collection.mutable.HashSet
+import java.lang.annotation.Annotation
 
 case class DesignError(msg: String) extends Error(msg)
 case class UsageError(msg: String) extends RuntimeException(msg)
@@ -18,7 +19,7 @@ object Util
   val CBoolean      = classOf[jl.Boolean]
   val CArrayString  = classOf[Array[String]]
   
-  val Argument = """^arg(\d+)$""".r
+  val ArgArgument = """^arg(\d+)$""".r
   
   def cond[T](x: T)(f: PartialFunction[T, Boolean]) =
     (f isDefinedAt x) && f(x)
@@ -38,7 +39,24 @@ object Util
       case x: Class[_]  => x.getName()
       case x            => x.toString()
     }  
+
+  /** Find an element for which a partial function is defined.  Return the partial function
+   *  result wrapped in a Some(), or else return None if the partial function is not defined 
+   *  for any elements.
+   */
+  def findMap[T,R](coll:Traversable[T], fn:PartialFunction[T,R]):Option[R] = {
+    coll find {elem => fn.isDefinedAt(elem)} map {elem => fn(elem)}
+  }
+  
+  /** maps to Some(value) where pf is defined, else to none */
+  def partialMap[T,R](coll:Traversable[T], fn:PartialFunction[T,R]):Traversable[Option[R]] = {
+    for (elem <- coll) yield {
+      if (fn.isDefinedAt(elem)) Some(fn(elem))
+      else None
+    } 
+  }
 }
+
 import Util._
 
 private object OptionType {
@@ -47,72 +65,80 @@ private object OptionType {
   }
 }
 
-object MainArg
-{
-  def apply(name: String, tpe: Type): MainArg = tpe match {
-    case CBool | CBoolean => BoolArg(name)
-    case OptionType(t)  => OptArg(name, t, tpe)
+object Argument {
+  def apply(name: String, tpe: Type, alias:Option[Char], help:Option[String]): Argument = tpe match {
+    case CBool | CBoolean => BoolArg(name, alias, help)
+    case OptionType(t)  => OptArg(name, t, tpe, alias, help)
     case _              =>
       name match {      
-        case Argument(num)  => PosArg(name, tpe, num.toInt)
-        case _              => ReqArg(name, tpe)
+        case ArgArgument(num)  => PosArg(name, tpe, num.toInt, alias, help)
+        case _              => ReqArg(name, tpe, alias, help)
       }
-  }
+    }
 
   def unapply(x: Any): Option[(String, Type, Type)] = x match {
-    case OptArg(name, tpe, originalType)  => Some(name, tpe, originalType)
-    case BoolArg(name)                    => Some(name, CBoolean, CBoolean)
-    case ReqArg(name, tpe)                => Some(name, tpe, tpe)
-    case PosArg(name, tpe, num)           => Some(name, tpe, tpe)
+    case OptArg(name, tpe, originalType, _, _)  => Some(name, tpe, originalType)
+    case BoolArg(name, _, _)                    => Some(name, CBoolean, CBoolean)
+    case ReqArg(name, tpe, _, _)                => Some(name, tpe, tpe)
+    case PosArg(name, tpe, num, _, _)           => Some(name, tpe, tpe)
   }
 }
 
-sealed abstract class MainArg {
+sealed abstract class Argument {
   def name: String
   def tpe: Type
   def originalType: Type
   def isOptional: Boolean
   def usage: String
-  
+  def alias:Option[Char]
+  def help:Option[String]
+
   def pos: Int = -1
   def isPositional = pos > -1
-  def isBoolean = false
+  def isSwitch = false
+
+  def mkUsage(base:String) = "%15s  %s" format(base, help)
 }
-case class OptArg(name: String, tpe: Type, originalType: Type) extends MainArg {
+
+case class OptArg(name: String, tpe: Type, originalType: Type, alias:Option[Char], help:Option[String]) 
+    extends Argument {
   val isOptional = true
   def usage = "[--%s %s]".format(name, stringForType(tpe))
 }
-case class ReqArg(name: String, tpe: Type) extends MainArg {
+case class ReqArg(name: String, tpe: Type, alias:Option[Char], help:Option[String]) extends Argument {
   val originalType = tpe
   val isOptional = false
-  def usage = "<%s: %s>".format(name, stringForType(tpe))
+  def usage = "<%s: %s> ".format(name, stringForType(tpe))
 }
-case class PosArg(name: String, tpe: Type, override val pos: Int) extends MainArg {
+case class PosArg(name: String, tpe: Type, override val pos: Int, alias:Option[Char], help:Option[String]) 
+    extends Argument {
   val originalType = tpe
   val isOptional = false
   def usage = "<%s>".format(stringForType(tpe))
 }
-case class BoolArg(name: String) extends MainArg {
-  override def isBoolean = true
+case class BoolArg(name: String, alias:Option[Char], help:Option[String]) extends Argument {
   val tpe, originalType = CBoolean
   val isOptional = true
+  override def isSwitch = true
   def usage = "[--%s]".format(name)
 }
+
+object Application {
+  def usageError(msg: String) = throw UsageError(msg)
+}
+import Application._
 
 /**
  *  This trait automagically finds a main method on the object 
  *  which mixes this in and based on method names and types figures
  *  out the options it should be called with and takes care of parameter parsing
  */ 
-trait Application
-{
-  /** Public methods.
-   */
+trait Application {
+  /** Public methods.  */
   def getRawArgs()  = opts.rawArgs
   def getArgs()     = opts.args
   
-  /** These methods can be overridden to modify application behavior.
-   */
+  /** These methods can be overridden to modify application behavior.  */
 
   /** Override this if you want to restrict the search space of conversion methods. */
   protected def isConversionMethod(m: Method) = true
@@ -121,20 +147,15 @@ trait Application
   protected def programName   = "program"
   protected def usageMessage  = "Usage: %s %s".format(programName, mainArgs map (_.usage) mkString " ")
   
-  /** If you need to set up more argument info */
-  protected def register(xs: ArgInfo*) { xs foreach (argInfos += _) }
-  
-  /** If you mess with anything from here on down, you're on your own.
-   */
+  /** If you mess with anything from here on down, you're on your own.  */
   
   private def methods(f: Method => Boolean): List[Method] = getClass.getMethods.toList filter f
   private def signature(m: Method) = m.toGenericString.replaceAll("""\S+\.main\(""", "main(") // ))
   private def designError(msg: String) = throw DesignError(msg)
-  private def usageError(msg: String) = throw UsageError(msg)
 
   private def isRealMain(m: Method)     = cond(m.getParameterTypes) { case Array(CArrayString) => true }
   private def isEligibleMain(m: Method) = m.getName == "main" && !isRealMain(m)
-  private lazy val mainMethod = methods(isEligibleMain) match {
+  lazy val mainMethod = methods(isEligibleMain) match {
     case Nil      => designError("No eligible main method found")
     case List(x)  => x
     case xs       =>
@@ -143,9 +164,24 @@ trait Application
       )
   }
   
+  private lazy val mainAnnotations = mainMethod.getParameterAnnotations 
+  private lazy val help = mainAnnotations map { 
+      findMap[Annotation,String](_, { case help:Help => help.value}) 
+    }
+  private lazy val aliases = mainAnnotations map { 
+      findMap[Annotation,Char](_, { case al:Alias => new String(al.value)(0)}) 
+    } 
+
   private lazy val parameterTypes   = mainMethod.getGenericParameterTypes.toList
   private lazy val argumentNames    = (new BytecodeReadingParanamer lookupParameterNames mainMethod map (_.replaceAll("\\$.+", ""))).toList
-  private lazy val mainArgs         = (argumentNames, parameterTypes).zipped map (MainArg(_, _))
+  private lazy val mainArgs         = {
+      val typesIter = parameterTypes.iterator
+      val aliasesIter = aliases.iterator
+      val helpIter = help.iterator
+      argumentNames map {name =>
+        Argument(name, typesIter.next, aliasesIter.next, helpIter.next)
+      }
+    }
   private lazy val reqArgs          = mainArgs filter (x => !x.isOptional)
   private def posArgCount           = mainArgs filter (_.isPositional) size
 
@@ -214,8 +250,6 @@ trait Application
   private var _opts: Options = null
   lazy val opts = _opts
   
-  private val argInfos = new HashSet[ArgInfo]()
-
   def callWithOptions(): Unit = {
     import opts._
     def missing(s: String)  = usageError("Missing required option '%s'".format(s))
@@ -233,24 +267,23 @@ trait Application
       usageError("missing required option%s: %s".format(s, missingStr))
     }
     
-    def determineValue(ma: MainArg): AnyRef = {
-      val MainArg(name, _, tpe) = ma
+    def determineValue(ma: Argument): AnyRef = {
+      val Argument(name, _, tpe) = ma
       def isPresent = options contains name
       
       if (ma.isPositional)      coerceTo(name, tpe)(args(ma.pos - 1))
       else if (isPresent)       coerceTo(name, tpe)(options(name))
-      else if (ma.isBoolean)    jl.Boolean.FALSE
+      else if (ma.isSwitch)     jl.Boolean.FALSE
       else if (ma.isOptional)   None
       else                      missing(name)
     }
-    
     mainMethod.invoke(this, (mainArgs map determineValue).toArray : _*)
   }
   
   
   def main(cmdline: Array[String]) {
     try {
-      _opts = Options.parse(argInfos, cmdline: _*)
+      _opts = Options.parse(mainArgs, cmdline: _*)
       callWithOptions()
     }
     catch {
